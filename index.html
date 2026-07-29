@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>PR2AN - Waterfall</title>
+<style>
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;padding:0;
+    background:#0b0b0d;
+    width:100%;
+    min-height:100vh;
+    font-family:'Segoe UI',Arial,sans-serif;
+  }
+  .rig{
+    width:100%;
+    border-radius:0;
+    padding:10px;
+    background:linear-gradient(180deg,#3a3d42 0%, #22242a 12%, #1b1c20 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.15),
+      inset 0 -3px 6px rgba(0,0,0,.5);
+    border:1px solid #16171a;
+  }
+  .screen-frame{
+    background:#000;
+    border-radius:6px;
+    padding:8px;
+    border:2px solid #050506;
+    box-shadow:inset 0 0 12px rgba(0,0,0,.9);
+  }
+  .lcd{
+    position:relative;
+    border-radius:3px;
+    overflow:hidden;
+    border:1px solid #0c2530;
+  }
+  canvas#waterfall{
+    width:100%; height:190px; display:block;
+  }
+  .callsign-overlay{
+    position:absolute;
+    top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    pointer-events:none;
+  }
+  .onair-plate{
+    font-family:'Arial Narrow','Arial',sans-serif;
+    font-size:40px; font-weight:900;
+    letter-spacing:10px;
+    color:#fff;
+    background:linear-gradient(180deg,#e21b2b 0%, #b30f1e 55%, #950a17 100%);
+    padding:10px 34px 12px;
+    border:4px solid #fff;
+    border-radius:6px;
+    box-shadow:
+      0 0 0 2px rgba(0,0,0,.55),
+      0 6px 14px rgba(0,0,0,.6),
+      0 0 24px rgba(226,27,43,.85),
+      inset 0 2px 3px rgba(255,255,255,.35),
+      inset 0 -4px 6px rgba(0,0,0,.35);
+    text-shadow:0 2px 2px rgba(0,0,0,.5);
+    animation:sign-glow 4.5s infinite ease-in-out;
+    white-space:nowrap;
+    text-align:center;
+  }
+  .onair-sub{
+    font-size:13px;
+    font-weight:700;
+    letter-spacing:5px;
+    color:#fff;
+    margin-top:2px;
+    opacity:.92;
+  }
+  @keyframes sign-glow{
+    0%,88%,100%{
+      box-shadow:
+        0 0 0 2px rgba(0,0,0,.55),
+        0 6px 14px rgba(0,0,0,.6),
+        0 0 24px rgba(226,27,43,.85),
+        inset 0 2px 3px rgba(255,255,255,.35),
+        inset 0 -4px 6px rgba(0,0,0,.35);
+    }
+    90%{
+      box-shadow:
+        0 0 0 2px rgba(0,0,0,.55),
+        0 6px 14px rgba(0,0,0,.6),
+        0 0 10px rgba(226,27,43,.4),
+        inset 0 2px 3px rgba(255,255,255,.2),
+        inset 0 -4px 6px rgba(0,0,0,.35);
+    }
+    92%{
+      box-shadow:
+        0 0 0 2px rgba(0,0,0,.55),
+        0 6px 14px rgba(0,0,0,.6),
+        0 0 34px rgba(226,27,43,1),
+        inset 0 2px 3px rgba(255,255,255,.4),
+        inset 0 -4px 6px rgba(0,0,0,.35);
+    }
+  }
+  @keyframes flicker{
+    0%,92%,100%{ opacity:1; }
+    93%{ opacity:.8; }
+    95%{ opacity:.55; }
+    96%{ opacity:1; }
+  }
+  .freq-scale{
+    display:flex; justify-content:space-between;
+    padding:4px 14px 2px;
+    font-family:'Consolas','DejaVu Sans Mono',monospace;
+    font-size:10px; color:#3f7f8f; letter-spacing:1px;
+  }
+  @media (max-width:640px){
+    .onair-plate{ font-size:26px; letter-spacing:6px; padding:7px 20px 9px; border-width:3px; }
+    .onair-sub{ font-size:10px; letter-spacing:3px; }
+  }
+  @media (max-width:400px){
+    .onair-plate{ font-size:18px; letter-spacing:4px; padding:5px 14px 7px; border-width:2px; }
+    .onair-sub{ font-size:8px; letter-spacing:2px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="rig">
+  <div class="screen-frame">
+    <div class="lcd">
+      <canvas id="waterfall"></canvas>
+      <div class="callsign-overlay">
+        <div class="onair-plate">
+          PR2AN
+          <div class="onair-sub">ON AIR</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="freq-scale">
+    <span>7.000</span><span>7.075</span><span>7.150</span><span>7.225</span><span>7.300</span>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ---------- Signal model : banda de 40m (7.000 - 7.300 MHz) ----------
+  // Escala: x=0 -> 7.000 MHz | x=1 -> 7.300 MHz  (freqKHz = 7000 + x*300)
+  const signals = [
+    // --- CW (7.000 - 7.040) ---
+    { center: 0.017, width: 0.006, type: 'cw',  baseAmp: 0.75, phase: Math.random()*10 }, // 7.005
+    { center: 0.060, width: 0.005, type: 'cw',  baseAmp: 0.55, phase: Math.random()*10 }, // 7.018
+    { center: 0.110, width: 0.006, type: 'cw',  baseAmp: 0.85, phase: Math.random()*10 }, // 7.033
+
+    // --- FT8 (pileup apertado em torno de 7.074) ---
+    { center: 0.2467, width: 0.0016, type: 'ft8', baseAmp: 0.80, phase: Math.random()*10 }, // 7.074.0
+    { center: 0.2483, width: 0.0016, type: 'ft8', baseAmp: 0.70, phase: Math.random()*10 }, // 7.074.5
+    { center: 0.2500, width: 0.0016, type: 'ft8', baseAmp: 0.90, phase: Math.random()*10 }, // 7.075.0
+    { center: 0.2517, width: 0.0016, type: 'ft8', baseAmp: 0.60, phase: Math.random()*10 }, // 7.075.5
+    { center: 0.2536, width: 0.0016, type: 'ft8', baseAmp: 0.75, phase: Math.random()*10 }, // 7.076.1
+    { center: 0.2440, width: 0.0016, type: 'ft8', baseAmp: 0.55, phase: Math.random()*10 }, // 7.073.2
+
+    // --- Fonia / LSB (7.130 - 7.300) ---
+    { center: 0.533, width: 0.055, type: 'ssb', baseAmp: 0.55, phase: Math.random()*10 }, // 7.160
+    { center: 0.667, width: 0.060, type: 'ssb', baseAmp: 0.40, phase: Math.random()*10 }, // 7.200
+    { center: 0.833, width: 0.050, type: 'ssb', baseAmp: 0.60, phase: Math.random()*10 }, // 7.250
+  ];
+
+  function noiseFloor(x, t){
+    return 0.05 + 0.02*Math.sin(x*40 + t*0.7) + Math.random()*0.04;
+  }
+
+  function spectrumAt(x, t){
+    let v = noiseFloor(x, t) + Math.random()*0.03;
+    for(const s of signals){
+      const drift = Math.sin(t*0.4 + s.phase) * 0.15 + 0.85;
+      const d = Math.abs(x - s.center);
+      let shape;
+      if(s.type === 'ssb'){
+        const w = s.width;
+        if(d < w){
+          const mod = 0.6 + 0.4*Math.sin(t*6 + x*90 + s.phase*3) * Math.sin(t*2.3+x*17);
+          shape = (1 - d/w) * Math.max(mod,0.15);
+        } else shape = 0;
+      } else if(s.type === 'cw'){
+        // chaveamento rápido e irregular (telegrafia manual)
+        const keyed = (Math.sin(t*1.6 + s.phase*5) > -0.55) ? 1 : 0.05;
+        shape = Math.exp(-(d*d)/(2*s.width*s.width)) * keyed;
+      } else {
+        // FT8: tom estreito e estável, com ciclos lentos de tx/rx (~15s)
+        const keyed = (Math.sin(t*0.18 + s.phase) > -0.35) ? 1 : 0.04;
+        shape = Math.exp(-(d*d)/(2*s.width*s.width)) * keyed;
+      }
+      v += shape * s.baseAmp * drift;
+    }
+    return Math.min(v, 1);
+  }
+
+  // ---------- Waterfall: paleta azul estilo Icom ----------
+  const wfCanvas = document.getElementById('waterfall');
+  const wfCtx = wfCanvas.getContext('2d');
+
+  function resizeCanvas(canvas){
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    return dpr;
+  }
+  resizeCanvas(wfCanvas);
+
+  function heatColor(v){
+    // Predominantemente azul/ciano, como no IC-7300:
+    // fundo quase preto -> azul marinho -> azul -> ciano -> branco-azulado no pico
+    v = Math.max(0, Math.min(1, v));
+    const stops = [
+      {p:0.00, c:[2,4,14]},
+      {p:0.15, c:[4,10,40]},
+      {p:0.32, c:[8,30,95]},
+      {p:0.50, c:[15,80,170]},
+      {p:0.68, c:[40,160,230]},
+      {p:0.84, c:[110,220,255]},
+      {p:1.00, c:[220,245,255]},
+    ];
+    for(let i=0;i<stops.length-1;i++){
+      const a=stops[i], b=stops[i+1];
+      if(v>=a.p && v<=b.p){
+        const f = (v-a.p)/(b.p-a.p);
+        const r = a.c[0]+(b.c[0]-a.c[0])*f;
+        const g = a.c[1]+(b.c[1]-a.c[1])*f;
+        const bl = a.c[2]+(b.c[2]-a.c[2])*f;
+        return `rgb(${r|0},${g|0},${bl|0})`;
+      }
+    }
+    return 'rgb(255,255,255)';
+  }
+
+  function scrollWaterfall(){
+    const w = wfCanvas.width, h = wfCanvas.height;
+    wfCtx.drawImage(wfCanvas, 0, 0, w, h, 0, 2, w, h);
+  }
+
+  function drawWaterfallLine(t){
+    const w = wfCanvas.width;
+    const N = 260;
+    const colW = w / N;
+    for(let i=0;i<N;i++){
+      const x = i/N;
+      const v = spectrumAt(x, t);
+      wfCtx.fillStyle = heatColor(v);
+      wfCtx.fillRect(i*colW, 0, colW+1, 2);
+    }
+  }
+
+  wfCtx.fillStyle = '#02040e';
+  wfCtx.fillRect(0,0,wfCanvas.width, wfCanvas.height);
+
+  let t = 0;
+  function animate(){
+    t += 0.035;
+    scrollWaterfall();
+    drawWaterfallLine(t);
+    requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(animate);
+
+  window.addEventListener('resize', () => {
+    resizeCanvas(wfCanvas);
+    wfCtx.fillStyle = '#02040e';
+    wfCtx.fillRect(0,0,wfCanvas.width, wfCanvas.height);
+  });
+})();
+</script>
+
+</body>
+</html>
